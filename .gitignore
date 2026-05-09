@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+.env
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+*.pyc
+
+# Node
+node_modules/
+.next/
+out/
+dist/
+.turbo/
+
+# pnpm
+.pnpm-store/
+
+# uv
+.uv/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Docker
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/
+
+# Debugra run artifacts (root-level only, not app route dirs)
+/runs/
+*.zip
+*.har
+
+# Benchmark raw data
+benchmark/results/*.csv
+benchmark/results/*.json

@@ -1,0 +1,47 @@
+services:
+  lms-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: lms
+      POSTGRES_PASSWORD: lms
+      POSTGRES_DB: lms
+    ports:
+      - "5433:5432"
+    volumes:
+      - lms_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lms"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  lms-backend:
+    build:
+      context: ../suts/lms/backend
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://lms:lms@lms-db:5432/lms
+      UPLOAD_DIR: /app/uploads
+    depends_on:
+      lms-db:
+        condition: service_healthy
+    volumes:
+      - lms_uploads:/app/uploads
+
+  lms-frontend:
+    build:
+      context: ../suts/lms/frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8001
+      BACKEND_URL: http://lms-backend:8001
+    depends_on:
+      - lms-backend
+
+volumes:
+  lms_pg_data:
+  lms_uploads:

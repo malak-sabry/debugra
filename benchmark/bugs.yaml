@@ -1,0 +1,170 @@
+# Debugra — Ground Truth Bug Catalog (v1)
+# 18 total seeded bugs: 10 LMS + 8 Shop
+# detection_oracle: http_5xx | console_error | dom_assertion | axe_violation | network_fail | llm_unverified
+
+bugs:
+  # ─── LMS Bugs ───────────────────────────────────────────────────────────────
+
+  - id: LMS-01
+    sut: lms
+    title: "Student cannot upload PDF >10MB (no server-side size validation)"
+    severity: high
+    location: suts/lms/backend/lms/routes/assignments.py:34-48
+    repro: "Login as student → Submit assignment → Upload file >10MB → Submit"
+    detection_oracle: dom_assertion
+    notes: "Server accepts any size; frontend hint ignored. Oracle: assert_text on success message missing, or check HTTP 413 absent."
+
+  - id: LMS-02
+    sut: lms
+    title: "Grade can exceed max score by 1 (off-by-one in validation)"
+    severity: medium
+    location: suts/lms/backend/lms/routes/assignments.py:80
+    repro: "Login as teacher → Grade submission with score = max_score + 1 → Accepted"
+    detection_oracle: dom_assertion
+    notes: "score > max_score + 1 instead of score > max_score."
+
+  - id: LMS-03
+    sut: lms
+    title: "Race condition: duplicate submissions accepted"
+    severity: high
+    location: suts/lms/backend/lms/routes/assignments.py:54-70
+    repro: "Submit assignment twice rapidly → Two submission records created"
+    detection_oracle: dom_assertion
+    notes: "No unique constraint on (assignment_id, student_id). Second submit creates duplicate."
+
+  - id: LMS-04
+    sut: lms
+    title: "XSS in assignment title field (not sanitized in frontend)"
+    severity: high
+    location: suts/lms/frontend/src/app/assignments/page.tsx
+    repro: "Login as teacher → Create assignment with title '<img src=x onerror=alert(1)>' → View list"
+    detection_oracle: console_error
+    notes: "Title rendered with dangerouslySetInnerHTML. Oracle: JS error in console."
+
+  - id: LMS-05
+    sut: lms
+    title: "Teacher can create assignment for any course (no ownership check)"
+    severity: high
+    location: suts/lms/backend/lms/routes/assignments.py:30-40
+    repro: "Login as teacher → POST /api/assignments with another teacher's course_id → Succeeds"
+    detection_oracle: http_5xx
+    notes: "Should return 403 when teacher_id != course.teacher_id."
+
+  - id: LMS-06
+    sut: lms
+    title: "Admin dashboard shows stale 'Last updated' timestamp"
+    severity: low
+    location: suts/lms/frontend/src/app/admin/page.tsx
+    repro: "Login as admin → Dashboard shows static timestamp that never refreshes"
+    detection_oracle: dom_assertion
+    notes: "Timestamp hardcoded in UI component."
+
+  - id: LMS-07
+    sut: lms
+    title: "GET /assignments/course/:id returns 200 + empty array for nonexistent course"
+    severity: medium
+    location: suts/lms/backend/lms/routes/assignments.py:51-65
+    repro: "GET /api/assignments/course/00000000-0000-0000-0000-000000000000 → 200 []"
+    detection_oracle: dom_assertion
+    notes: "Should return 404 when course doesn't exist."
+
+  - id: LMS-08
+    sut: lms
+    title: "Teacher can grade their own submission (self-grading not prevented)"
+    severity: high
+    location: suts/lms/backend/lms/routes/assignments.py:73-84
+    repro: "Login as teacher-student → Submit assignment → Grade own submission → Succeeds"
+    detection_oracle: dom_assertion
+    notes: "No check that grader.id != submission.student_id."
+
+  - id: LMS-09
+    sut: lms
+    title: "Password reset token can be reused"
+    severity: critical
+    location: suts/lms/backend/lms/routes/auth.py
+    repro: "Request password reset → Use token → Request same token again → Token still valid"
+    detection_oracle: http_5xx
+    notes: "Token not invalidated after first use (not implemented in demo; seeded as stub)."
+
+  - id: LMS-10
+    sut: lms
+    title: "Mobile nav overflows viewport at 375px width"
+    severity: low
+    location: suts/lms/frontend/src/components/nav.tsx
+    repro: "Open LMS on mobile (375px) → Nav bar overflows horizontally"
+    detection_oracle: dom_assertion
+    notes: "No responsive breakpoint on nav. Oracle: assert_visible for mobile menu hamburger."
+
+  # ─── Shop Bugs ───────────────────────────────────────────────────────────────
+
+  - id: SHOP-01
+    sut: shop
+    title: "Cart quantity doubles on rapid double-click 'Add to Cart'"
+    severity: high
+    location: suts/shop/backend/shop/routes/cart.py:42-58
+    repro: "Login → Product page → Double-click 'Add to Cart' rapidly → Quantity = 2 instead of 1"
+    detection_oracle: dom_assertion
+    notes: "No idempotency key; two concurrent requests both increment quantity."
+
+  - id: SHOP-02
+    sut: shop
+    title: "Discount not applied to cart total in race condition scenario"
+    severity: high
+    location: suts/shop/backend/shop/routes/checkout.py:51-60
+    repro: "Add items → Apply discount SAVE20 → Checkout → Total not discounted"
+    detection_oracle: dom_assertion
+    notes: "Discount applied after total calculation but cart not locked."
+
+  - id: SHOP-03
+    sut: shop
+    title: "Currency rounding error using float math"
+    severity: medium
+    location: suts/shop/backend/shop/routes/checkout.py:63
+    repro: "Add item $39.99 + $79.99 → Total shows floating point imprecision"
+    detection_oracle: dom_assertion
+    notes: "Uses float arithmetic: 39.99 + 79.99 = 119.98000000000001."
+
+  - id: SHOP-04
+    sut: shop
+    title: "Checkout proceeds with empty shipping address"
+    severity: high
+    location: suts/shop/backend/shop/routes/checkout.py:29-32
+    repro: "Add items → Go to checkout → Leave address blank → Submit → Order confirmed"
+    detection_oracle: dom_assertion
+    notes: "Server-side validation missing. Should return 422."
+
+  - id: SHOP-05
+    sut: shop
+    title: "GET /checkout/orders exposes other user's orders via user_id query param"
+    severity: critical
+    location: suts/shop/backend/shop/routes/checkout.py:68-87
+    repro: "Login as buyer A → GET /api/checkout/orders?user_id=<buyer_B_id> → Sees B's orders"
+    detection_oracle: dom_assertion
+    notes: "IDOR vulnerability: no authorization check on user_id parameter."
+
+  - id: SHOP-06
+    sut: shop
+    title: "Cart persists after logout (not cleared on session end)"
+    severity: medium
+    location: suts/shop/frontend/src/lib/cart.ts
+    repro: "Add items to cart → Logout → Login as different user → Cart items still visible"
+    detection_oracle: dom_assertion
+    notes: "Cart stored in localStorage without user-scoping."
+
+  - id: SHOP-07
+    sut: shop
+    title: "Broken product image URL pattern causes 404 on product pages"
+    severity: low
+    location: suts/shop/backend/shop/routes/products.py:18
+    repro: "Browse any product → Product image returns 404"
+    detection_oracle: network_fail
+    notes: "image_url defaults to /images/product-<uuid>.jpg which doesn't exist."
+
+  - id: SHOP-08
+    sut: shop
+    title: "Back button after payment returns to checkout form (not order confirmation)"
+    severity: medium
+    location: suts/shop/frontend/src/app/checkout/page.tsx
+    repro: "Complete checkout → View confirmation → Press browser back → Checkout form shown"
+    detection_oracle: dom_assertion
+    notes: "Missing history.replaceState or redirect after payment."

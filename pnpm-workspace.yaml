@@ -1,0 +1,5 @@
+packages:
+  - "apps/dashboard"
+  - "suts/lms/frontend"
+  - "suts/shop/frontend"
+  - "packages/schemas"

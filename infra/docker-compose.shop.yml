@@ -1,0 +1,43 @@
+services:
+  shop-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: shop
+      POSTGRES_PASSWORD: shop
+      POSTGRES_DB: shop
+    ports:
+      - "5434:5432"
+    volumes:
+      - shop_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shop"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  shop-backend:
+    build:
+      context: ../suts/shop/backend
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8002"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://shop:shop@shop-db:5432/shop
+    depends_on:
+      shop-db:
+        condition: service_healthy
+
+  shop-frontend:
+    build:
+      context: ../suts/shop/frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3002:3002"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8002
+      BACKEND_URL: http://shop-backend:8002
+    depends_on:
+      - shop-backend
+
+volumes:
+  shop_pg_data:

@@ -1,0 +1,17 @@
+{
+  "name": "debugra",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@9.14.4",
+  "scripts": {
+    "dev:dashboard": "pnpm --filter dashboard dev",
+    "dev:lms": "pnpm --filter lms-frontend dev",
+    "dev:shop": "pnpm --filter shop-frontend dev",
+    "build": "pnpm --recursive build",
+    "lint": "pnpm --recursive lint",
+    "type-check": "pnpm --recursive type-check"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

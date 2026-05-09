@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Debugra QA Report — {{ run.sut | upper }}</title>
+  <style>
+    :root {
+      --brand: #6366f1;
+      --brand-dark: #4338ca;
+      --bg: #ffffff;
+      --surface: #f8fafc;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --muted: #64748b;
+      --critical: #dc2626; --critical-bg: #fef2f2;
+      --high:     #ea580c; --high-bg:     #fff7ed;
+      --medium:   #ca8a04; --medium-bg:   #fefce8;
+      --low:      #2563eb; --low-bg:      #eff6ff;
+      --info:     #64748b; --info-bg:     #f8fafc;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Helvetica Neue', Arial, sans-serif; color: var(--text); background: var(--bg); font-size: 11pt; line-height: 1.5; }
+
+    /* ── Cover ── */
+    .cover { min-height: 280px; background: linear-gradient(135deg, var(--brand-dark) 0%, var(--brand) 100%); color: #fff; padding: 56px 48px 40px; display: flex; flex-direction: column; justify-content: space-between; }
+    .cover-logo { font-size: 22pt; font-weight: 800; letter-spacing: -0.5px; }
+    .cover-logo span { opacity: 0.6; font-weight: 400; }
+    .cover-title { font-size: 28pt; font-weight: 700; margin-top: 28px; }
+    .cover-subtitle { font-size: 13pt; opacity: 0.8; margin-top: 6px; }
+    .cover-meta { display: flex; gap: 40px; margin-top: 32px; font-size: 9.5pt; opacity: 0.85; }
+    .cover-meta dt { text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.7; font-size: 8pt; }
+    .cover-meta dd { font-weight: 600; margin-top: 2px; }
+
+    /* ── Layout ── */
+    .page { padding: 36px 48px; }
+    h2 { font-size: 15pt; font-weight: 700; color: var(--brand-dark); margin: 28px 0 12px; padding-bottom: 6px; border-bottom: 2px solid var(--brand); }
+    h3 { font-size: 11.5pt; font-weight: 600; margin: 16px 0 6px; }
+    p { margin-bottom: 8px; color: var(--muted); }
+    .page-break { page-break-before: always; }
+
+    /* ── Executive summary ── */
+    .headline { font-size: 14pt; font-weight: 600; color: var(--text); margin-bottom: 10px; }
+    .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0 20px; }
+    .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+    .kpi-value { font-size: 22pt; font-weight: 800; }
+    .kpi-label { font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-top: 2px; }
+    .kpi.critical .kpi-value { color: var(--critical); }
+    .kpi.high     .kpi-value { color: var(--high); }
+    .kpi.medium   .kpi-value { color: var(--medium); }
+    .kpi.low      .kpi-value { color: var(--low); }
+
+    .top-risks { background: var(--surface); border-left: 4px solid var(--brand); border-radius: 4px; padding: 12px 16px; margin: 12px 0; }
+    .top-risks li { margin: 4px 0; font-size: 10pt; }
+
+    /* ── Findings ── */
+    .finding { border: 1px solid var(--border); border-radius: 8px; margin: 12px 0; overflow: hidden; }
+    .finding-header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; }
+    .badge { display: inline-block; font-size: 8pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; padding: 3px 8px; border-radius: 4px; }
+    .badge.critical { background: var(--critical-bg); color: var(--critical); }
+    .badge.high     { background: var(--high-bg);     color: var(--high); }
+    .badge.medium   { background: var(--medium-bg);   color: var(--medium); }
+    .badge.low      { background: var(--low-bg);      color: var(--low); }
+    .badge.info     { background: var(--info-bg);     color: var(--info); }
+    .finding-title { font-weight: 600; font-size: 10.5pt; flex: 1; }
+    .finding-oracle { font-size: 8pt; color: var(--muted); font-family: 'Courier New', monospace; }
+    .finding-body { padding: 10px 16px 14px; border-top: 1px solid var(--border); background: var(--surface); }
+    .finding-desc { font-size: 9.5pt; color: var(--text); margin-bottom: 8px; }
+    .repro-list { list-style: decimal; padding-left: 18px; }
+    .repro-list li { font-size: 9pt; color: var(--muted); margin: 3px 0; }
+    .ground-truth { display: inline-block; font-size: 8pt; background: #d1fae5; color: #065f46; padding: 2px 7px; border-radius: 3px; margin-top: 6px; font-family: monospace; }
+    .unverified-tag { display: inline-block; font-size: 8pt; background: #fef3c7; color: #92400e; padding: 2px 7px; border-radius: 3px; margin-top: 6px; }
+
+    /* ── Agent summary table ── */
+    table { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin: 10px 0; }
+    th { background: var(--surface); text-align: left; padding: 8px 12px; font-weight: 600; font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); border-bottom: 2px solid var(--border); }
+    td { padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    .status-chip { font-size: 8pt; font-weight: 600; padding: 2px 7px; border-radius: 3px; }
+    .status-complete { background: #d1fae5; color: #065f46; }
+    .status-failed   { background: #fee2e2; color: #991b1b; }
+    .status-other    { background: #e0e7ff; color: #3730a3; }
+
+    /* ── Coverage ── */
+    .coverage-note { font-size: 9.5pt; color: var(--muted); padding: 10px 16px; background: var(--surface); border-radius: 6px; border: 1px solid var(--border); margin: 10px 0; }
+
+    /* ── Footer ── */
+    .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 8.5pt; color: var(--muted); display: flex; justify-content: space-between; }
+  </style>
+</head>
+<body>
+
+<!-- Cover -->
+<div class="cover">
+  <div>
+    <div class="cover-logo">Debugra <span>/ Autonomous QA</span></div>
+    <div class="cover-title">QA Report — {{ run.sut | upper }}</div>
+    <div class="cover-subtitle">Autonomous multi-agent testing run</div>
+  </div>
+  <div class="cover-meta">
+    <div>
+      <dt>Run ID</dt>
+      <dd>{{ run.id[:8] }}…</dd>
+    </div>
+    <div>
+      <dt>SUT</dt>
+      <dd>{{ run.sut | upper }}</dd>
+    </div>
+    <div>
+      <dt>Status</dt>
+      <dd>{{ run.status | upper }}</dd>
+    </div>
+    <div>
+      <dt>Duration</dt>
+      <dd>{{ duration }}</dd>
+    </div>
+    <div>
+      <dt>Generated</dt>
+      <dd>{{ generated_at }}</dd>
+    </div>
+  </div>
+</div>
+
+<!-- Executive Summary -->
+<div class="page">
+  <h2>Executive Summary</h2>
+  <p class="headline">{{ executive_summary.headline }}</p>
+
+  <div class="kpi-grid">
+    <div class="kpi"><div class="kpi-value">{{ findings | length }}</div><div class="kpi-label">Total Findings</div></div>
+    <div class="kpi critical"><div class="kpi-value">{{ findings | selectattr('severity','eq','critical') | list | length }}</div><div class="kpi-label">Critical</div></div>
+    <div class="kpi high"><div class="kpi-value">{{ findings | selectattr('severity','eq','high') | list | length }}</div><div class="kpi-label">High</div></div>
+    <div class="kpi medium"><div class="kpi-value">{{ findings | selectattr('severity','eq','medium') | list | length }}</div><div class="kpi-label">Medium</div></div>
+  </div>
+
+  {% if executive_summary.top_risks %}
+  <h3>Top Risks</h3>
+  <div class="top-risks">
+    <ul>
+      {% for risk in executive_summary.top_risks %}
+      <li>{{ risk }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <div class="coverage-note">{{ executive_summary.coverage_summary }}</div>
+
+  {% if executive_summary.benchmark_note %}
+  <p style="font-size:9pt; margin-top:8px;">{{ executive_summary.benchmark_note }}</p>
+  {% endif %}
+
+  <!-- Agent Table -->
+  <h2>Agent Sessions</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Role</th>
+        <th>Status</th>
+        <th>Steps</th>
+        <th>Started</th>
+        <th>Duration</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for agent in agents %}
+      <tr>
+        <td style="font-weight:600; text-transform:capitalize;">{{ agent.role }}</td>
+        <td>
+          <span class="status-chip {% if agent.status == 'complete' %}status-complete{% elif agent.status == 'failed' %}status-failed{% else %}status-other{% endif %}">
+            {{ agent.status }}
+          </span>
+        </td>
+        <td>{{ agent.step_count }}</td>
+        <td style="font-size:8.5pt; color:#64748b;">{{ agent.started_at[:16] if agent.started_at else '—' }}</td>
+        <td style="font-size:8.5pt;">{{ agent_durations.get(agent.id, '—') }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Findings -->
+<div class="page page-break">
+  <h2>Findings ({{ findings | length }})</h2>
+
+  {% if findings | length == 0 %}
+  <p>No findings detected in this run.</p>
+  {% else %}
+    {% for f in findings %}
+    <div class="finding">
+      <div class="finding-header">
+        <span class="badge {{ f.severity }}">{{ f.severity }}</span>
+        <span class="finding-title">{{ f.title }}</span>
+        <span class="finding-oracle">{{ f.oracle_type }}</span>
+      </div>
+      <div class="finding-body">
+        <p class="finding-desc">{{ f.description }}</p>
+        {% if f.repro_steps %}
+        <strong style="font-size:9pt;">Reproduction Steps</strong>
+        <ol class="repro-list">
+          {% for step in f.repro_steps %}
+          <li>{{ step }}</li>
+          {% endfor %}
+        </ol>
+        {% endif %}
+        {% if f.ground_truth_bug_id %}
+        <span class="ground-truth">✓ Matches seeded bug: {{ f.ground_truth_bug_id }}</span>
+        {% endif %}
+        {% if f.oracle_type == 'llm_unverified' %}
+        <span class="unverified-tag">⚠ Unverified — requires human confirmation</span>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  {% endif %}
+</div>
+
+<!-- Footer on last page -->
+<div class="page">
+  <div class="footer">
+    <span>Debugra — Autonomous AI QA System</span>
+    <span>Run {{ run.id[:8] }} · {{ generated_at }}</span>
+  </div>
+</div>
+
+</body>
+</html>
