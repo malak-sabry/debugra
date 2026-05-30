@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from orchestrator.api.routes import artifacts as artifacts_router
 from orchestrator.api.routes import runs as runs_router
 from orchestrator.api.routes import ws as ws_router
 from orchestrator.config import get_settings
@@ -35,6 +36,7 @@ app.add_middleware(
 )
 
 app.include_router(runs_router.router, prefix="/api")
+app.include_router(artifacts_router.router, prefix="/api")
 app.include_router(ws_router.router)
 
 

@@ -65,6 +65,75 @@ async def aggregate_findings(run_id: str, agent_results: list[dict]) -> list[Fin
         actions: list[dict] = agent_result.get("actions", [])
         assertion_failures: list[dict] = agent_result.get("assertion_failures", [])
 
+        # 0. Agent-level failure detection
+        agent_error = agent_result.get("error")
+        agent_exit_code = agent_result.get("exit_code")
+        if agent_error or (agent_exit_code is not None and agent_exit_code != 0):
+            title = f"Agent {role} failed: could not complete objective"
+            if title not in seen_titles:
+                seen_titles.add(title)
+
+                actions_for_repro = actions or agent_result.get("actions", [])
+                last_actions = actions_for_repro[-5:] if actions_for_repro else []
+
+                if agent_exit_code == -9:
+                    human_error = "Agent hit the wall-clock time limit (5 min). It was still running when the timeout was reached."
+                elif agent_exit_code == -1:
+                    human_error = f"Agent crashed before completing: {agent_error or 'Unknown error'}"
+                else:
+                    human_error = f"Agent exited with code {agent_exit_code}. {agent_error or ''}"
+
+                repro_steps: list[str] = []
+                for a in last_actions:
+                    tool = a.get("tool", "?")
+                    step = a.get("step", "?")
+                    args = a.get("args", {})
+                    thought = a.get("thought", "")
+                    if tool == "goto":
+                        repro_steps.append(f"[{step}] Navigate to {args.get('url', '')}")
+                    elif tool == "click":
+                        repro_steps.append(f"[{step}] Click {args.get('selector', '')}")
+                    elif tool == "fill":
+                        repro_steps.append(f"[{step}] Fill {args.get('selector', '')} = '{args.get('value', '')[:80]}'")
+                    else:
+                        repro_steps.append(f"[{step}] {tool}: {str(args)[:100]}")
+                    if thought:
+                        repro_steps.append(f"     → reasoned: {thought[:150]}")
+
+                evidence_paths: list[str] = []
+                for a in reversed(actions_for_repro):
+                    sp = a.get("screenshot_path")
+                    if sp and sp not in evidence_paths:
+                        evidence_paths.append(sp)
+                        if len(evidence_paths) >= 3:
+                            break
+
+                if last_actions:
+                    last_step = last_actions[-1]
+                    context = (
+                        f"Agent role: {role}\n"
+                        f"Failure: {human_error}\n"
+                        f"Last action: {last_step.get('tool', '?')} on page {last_step.get('observation_summary', '?')}\n"
+                        f"Last args: {str(last_step.get('args', {}))[:200]}\n"
+                        f"Total steps attempted: {len(actions_for_repro)}"
+                    )
+                else:
+                    context = f"Agent role: {role}\nFailure: {human_error}\nNo actions were recorded before failure."
+
+                findings.append(Finding(
+                    id=uuid4(),
+                    run_id=run_id,
+                    agent_id=agent_id,
+                    severity=Severity.HIGH,
+                    title=title,
+                    description=context,
+                    repro_steps=repro_steps,
+                    evidence_paths=evidence_paths,
+                    oracle_type="agent_failure",
+                    ground_truth_bug_id=None,
+                    detected_at=datetime.now(timezone.utc),
+                ))
+
         # 1. Scan logs for deterministic oracle hits
         for log_line in logs:
             oracle = _oracle_type(log_line)

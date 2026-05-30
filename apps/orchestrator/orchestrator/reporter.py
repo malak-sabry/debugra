@@ -15,6 +15,17 @@ def _load_prompt() -> str:
     return _PROMPT_PATH.read_text(encoding="utf-8")
 
 
+def _has_usable_anthropic_key() -> bool:
+    key = settings.anthropic_api_key.strip()
+    return key.startswith("sk-ant-") and "..." not in key
+
+
+def _openai_compatible_config() -> tuple[str, str]:
+    if settings.hackclub_api_key.strip():
+        return settings.hackclub_api_key, settings.hackclub_base_url
+    return settings.openai_api_key, settings.openai_base_url
+
+
 async def run_reporter(
     run_id: str,
     sut: str,
@@ -23,7 +34,6 @@ async def run_reporter(
     findings: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Synthesize findings into a polished report via LLM."""
-    from langchain_anthropic import ChatAnthropic
     from langchain_core.messages import HumanMessage, SystemMessage
 
     total_steps = sum(len(r.get("actions", [])) for r in agent_results)
@@ -40,20 +50,40 @@ Findings ({len(findings)} total):
 
 Produce the report JSON now."""
 
-    if not settings.anthropic_api_key:
-        return _fallback_report(run_id, sut, findings, roles_tested, total_steps)
-
     system_prompt = _load_prompt()
-    llm = ChatAnthropic(
-        model=settings.llm_reporter,
-        api_key=settings.anthropic_api_key,
-        max_tokens=4096,
-        temperature=0,
-    )
+    model = settings.llm_reporter
+    if "claude" in model:
+        if not _has_usable_anthropic_key():
+            return _fallback_report(run_id, sut, findings, roles_tested, total_steps)
+        from langchain_anthropic import ChatAnthropic
 
-    response = await llm.ainvoke(
-        [SystemMessage(content=system_prompt), HumanMessage(content=user_message)]
-    )
+        llm = ChatAnthropic(
+            model=model,
+            api_key=settings.anthropic_api_key,
+            max_tokens=4096,
+            temperature=0,
+        )
+    else:
+        api_key, base_url = _openai_compatible_config()
+        if not api_key.strip():
+            return _fallback_report(run_id, sut, findings, roles_tested, total_steps)
+        from langchain_openai import ChatOpenAI
+
+        llm = ChatOpenAI(
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            max_tokens=4096,
+            temperature=0,
+            request_timeout=60,
+        )
+
+    try:
+        response = await llm.ainvoke(
+            [SystemMessage(content=system_prompt), HumanMessage(content=user_message)]
+        )
+    except Exception:
+        return _fallback_report(run_id, sut, findings, roles_tested, total_steps)
 
     raw = response.content.strip()
     if raw.startswith("```"):

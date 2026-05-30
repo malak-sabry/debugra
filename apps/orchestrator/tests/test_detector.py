@@ -1,7 +1,6 @@
 """Tests for the deterministic bug detector — no DB/network required."""
 from __future__ import annotations
 
-import pytest
 import asyncio
 from uuid import uuid4
 from orchestrator.detector import aggregate_findings, _oracle_type

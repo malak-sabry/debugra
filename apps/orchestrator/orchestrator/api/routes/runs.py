@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -10,8 +9,8 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from debugra_schemas import Run, RunStatus, SUT
-from orchestrator.db import RunModel, FindingModel, AgentModel, get_session
+from debugra_schemas import ActionTool, AgentRole, AgentStatus, RunEventType, RunStatus, SUT, Severity
+from orchestrator.db import ActionModel, RunModel, FindingModel, AgentModel, get_session, utc_now_naive
 from orchestrator.graph import build_run_graph, RunState
 from orchestrator.event_bus import publish_event
 
@@ -42,7 +41,7 @@ async def create_run(
         sut=body.sut,
         status=RunStatus.PENDING,
         config=body.config,
-        created_at=datetime.now(timezone.utc),
+        created_at=utc_now_naive(),
     )
     session.add(db_run)
     await session.commit()
@@ -130,8 +129,10 @@ async def get_agents(run_id: UUID, session: AsyncSession = Depends(get_session))
             "id": str(a.id),
             "role": a.role,
             "status": a.status,
+            "model": a.model,
             "step_count": a.step_count,
             "trace_path": a.trace_path,
+            "video_path": a.video_path,
             "started_at": a.started_at.isoformat() if a.started_at else None,
             "ended_at": a.ended_at.isoformat() if a.ended_at else None,
         }
@@ -228,13 +229,144 @@ async def get_report_pdf(run_id: UUID, session: AsyncSession = Depends(get_sessi
 # ─── Background task ──────────────────────────────────────────────────────────
 
 
+def _payload_uuid(payload: dict, key: str) -> UUID | None:
+    value = payload.get(key)
+    if not value:
+        return None
+    try:
+        return UUID(str(value))
+    except ValueError:
+        return None
+
+
+def _agent_role(value: object) -> AgentRole:
+    if isinstance(value, AgentRole):
+        return value
+    try:
+        return AgentRole(str(value))
+    except ValueError:
+        try:
+            return AgentRole[str(value).upper()]
+        except KeyError:
+            return AgentRole.ANONYMOUS
+
+
+def _severity(value: object) -> Severity:
+    if isinstance(value, Severity):
+        return value
+    try:
+        return Severity(str(value))
+    except ValueError:
+        try:
+            return Severity[str(value).upper()]
+        except KeyError:
+            return Severity.INFO
+
+
+async def _persist_run_event(run_id: str, event_type: RunEventType, payload: dict) -> None:
+    from orchestrator.db import async_session_maker
+
+    run_uuid = UUID(run_id)
+
+    async with async_session_maker() as session:
+        db_run = await session.get(RunModel, run_uuid)
+        if db_run:
+            if event_type == RunEventType.PLANNING_STARTED:
+                db_run.status = RunStatus.PLANNING
+            elif event_type == RunEventType.PLANNING_COMPLETE:
+                db_run.status = RunStatus.RUNNING
+                if payload.get("plan"):
+                    db_run.plan = payload["plan"]
+            elif event_type == RunEventType.FINDING_DETECTED:
+                db_run.status = RunStatus.DETECTING
+            elif event_type == RunEventType.REPORT_READY:
+                db_run.status = RunStatus.REPORTING
+
+        agent_uuid = _payload_uuid(payload, "agent_id")
+
+        if event_type == RunEventType.AGENT_SPAWNED and agent_uuid:
+            agent = await session.get(AgentModel, agent_uuid)
+            if not agent:
+                agent = AgentModel(
+                    id=agent_uuid,
+                    run_id=run_uuid,
+                    role=_agent_role(payload.get("role")),
+                    status=AgentStatus.RUNNING,
+                    model=str(payload.get("model") or ""),
+                    step_count=0,
+                    started_at=utc_now_naive(),
+                )
+                session.add(agent)
+
+        elif event_type == RunEventType.AGENT_STEP and agent_uuid:
+            agent = await session.get(AgentModel, agent_uuid)
+            step = int(payload.get("step") or 0)
+            if agent:
+                agent.status = AgentStatus.RUNNING
+                agent.step_count = max(agent.step_count or 0, step)
+
+            try:
+                tool = ActionTool(str(payload.get("tool") or ActionTool.SCREENSHOT.value))
+            except ValueError:
+                tool = ActionTool.SCREENSHOT
+
+            session.add(
+                ActionModel(
+                    id=uuid4(),
+                    agent_id=agent_uuid,
+                    step=step,
+                    observation_summary=str(payload.get("observation_summary") or ""),
+                    thought=str(payload.get("thought") or ""),
+                    tool=tool,
+                    args=payload.get("args") if isinstance(payload.get("args"), dict) else {},
+                    result=payload.get("result"),
+                    error=payload.get("error"),
+                    screenshot_path=payload.get("screenshot_path"),
+                    ts=utc_now_naive(),
+                )
+            )
+
+        elif event_type in (RunEventType.AGENT_COMPLETE, RunEventType.AGENT_FAILED) and agent_uuid:
+            agent = await session.get(AgentModel, agent_uuid)
+            if agent:
+                agent.status = (
+                    AgentStatus.COMPLETE
+                    if event_type == RunEventType.AGENT_COMPLETE
+                    else AgentStatus.FAILED
+                )
+                agent.step_count = max(agent.step_count or 0, int(payload.get("step_count") or 0))
+                agent.trace_path = payload.get("trace_path")
+                agent.video_path = payload.get("video_path")
+                agent.ended_at = utc_now_naive()
+
+        elif event_type == RunEventType.FINDING_DETECTED:
+            session.add(
+                FindingModel(
+                    id=uuid4(),
+                    run_id=run_uuid,
+                    agent_id=agent_uuid,
+                    severity=_severity(payload.get("severity")),
+                    title=str(payload.get("title") or "Untitled finding"),
+                    description=str(payload.get("description") or ""),
+                    repro_steps=payload.get("repro_steps") if isinstance(payload.get("repro_steps"), list) else [],
+                    evidence_paths=payload.get("evidence_paths") if isinstance(payload.get("evidence_paths"), list) else [],
+                    oracle_type=str(payload.get("oracle_type") or "unknown"),
+                    ground_truth_bug_id=payload.get("ground_truth_bug_id"),
+                    llm_summary=payload.get("llm_summary"),
+                    detected_at=utc_now_naive(),
+                )
+            )
+
+        await session.commit()
+
+
 async def _execute_run(run_id: str, sut: SUT, readme: str) -> None:
     from orchestrator.db import async_session_maker
-    from debugra_schemas import RunEventType
 
     graph = build_run_graph()
 
     async def event_callback(event_type: RunEventType, payload: dict) -> None:
+        await _persist_run_event(run_id, event_type, payload)
         await publish_event(run_id, event_type, payload)
 
     sut_urls = {
@@ -259,7 +391,7 @@ async def _execute_run(run_id: str, sut: SUT, readme: str) -> None:
         db_run = await session.get(RunModel, run_id)
         if db_run:
             db_run.status = RunStatus.PLANNING
-            db_run.started_at = datetime.now(timezone.utc)
+            db_run.started_at = utc_now_naive()
             await session.commit()
 
     await publish_event(run_id, RunEventType.RUN_STARTED, {"sut": sut, "run_id": run_id})
@@ -271,7 +403,7 @@ async def _execute_run(run_id: str, sut: SUT, readme: str) -> None:
             db_run = await session.get(RunModel, run_id)
             if db_run:
                 db_run.status = RunStatus.COMPLETE if not final_state.get("error") else RunStatus.FAILED
-                db_run.ended_at = datetime.now(timezone.utc)
+                db_run.ended_at = utc_now_naive()
                 db_run.plan = final_state.get("plan")
                 await session.commit()
 
@@ -283,6 +415,6 @@ async def _execute_run(run_id: str, sut: SUT, readme: str) -> None:
             db_run = await session.get(RunModel, run_id)
             if db_run:
                 db_run.status = RunStatus.FAILED
-                db_run.ended_at = datetime.now(timezone.utc)
+                db_run.ended_at = utc_now_naive()
                 await session.commit()
         await publish_event(run_id, RunEventType.RUN_FAILED, {"error": str(exc)})

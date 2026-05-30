@@ -12,6 +12,53 @@ class ActionError(Exception):
     pass
 
 
+async def _locator(page: Page, selector: str):
+    """Resolve CSS selectors first, then human-readable labels/text."""
+    selector = selector.strip()
+    if selector.startswith("css="):
+        return page.locator(selector.removeprefix("css="))
+    if selector.startswith("text="):
+        return page.get_by_text(selector.removeprefix("text=").strip("\"'"), exact=False)
+    if selector.startswith("label="):
+        return page.get_by_label(selector.removeprefix("label=").strip("\"'"), exact=False)
+    if selector.startswith("placeholder="):
+        return page.get_by_placeholder(selector.removeprefix("placeholder=").strip("\"'"), exact=False)
+    if selector.startswith("testid="):
+        return page.get_by_test_id(selector.removeprefix("testid=").strip("\"'"))
+
+    try:
+        css_locator = page.locator(selector)
+        if await css_locator.count() > 0:
+            return css_locator
+    except Exception:
+        pass
+
+    text = selector.strip("\"'")
+    return page.get_by_text(text, exact=False)
+
+
+async def _click(page: Page, selector: str) -> None:
+    locator = await _locator(page, selector)
+    await locator.first.click(timeout=10_000)
+
+
+async def _fill(page: Page, selector: str, value: str) -> None:
+    locator = await _locator(page, selector)
+    await locator.first.fill(value, timeout=10_000)
+
+
+async def _wait_visible(page: Page, selector: str, timeout: int) -> None:
+    locator = await _locator(page, selector)
+    await locator.first.wait_for(state="visible", timeout=timeout)
+
+
+def _artifact_ref(path: Path, artifact_dir: Path) -> str:
+    try:
+        return str(path.relative_to(artifact_dir.parents[1]))
+    except ValueError:
+        return str(path)
+
+
 async def execute_action(
     page: Page,
     tool: ActionTool,
@@ -33,13 +80,13 @@ async def execute_action(
 
             case ActionTool.CLICK:
                 selector = args["selector"]
-                await page.click(selector, timeout=10_000)
+                await _click(page, selector)
                 result = f"Clicked {selector}"
 
             case ActionTool.FILL:
                 selector = args["selector"]
                 value = str(args["value"])
-                await page.fill(selector, value, timeout=10_000)
+                await _fill(page, selector, value)
                 result = f"Filled {selector} with '{value}'"
 
             case ActionTool.SELECT:
@@ -51,14 +98,14 @@ async def execute_action(
             case ActionTool.WAIT_FOR:
                 selector = args["selector"]
                 timeout = int(args.get("timeout_ms", 5000))
-                await page.wait_for_selector(selector, timeout=timeout)
+                await _wait_visible(page, selector, timeout)
                 result = f"Waited for {selector}"
 
             case ActionTool.ASSERT_VISIBLE:
                 selector = args["selector"]
                 description = args.get("description", selector)
                 try:
-                    await page.wait_for_selector(selector, state="visible", timeout=5_000)
+                    await _wait_visible(page, selector, 5_000)
                     result = f"PASS: {description} is visible"
                 except PWTimeout:
                     raise ActionError(f"FAIL: {description} not visible on page")
@@ -67,7 +114,8 @@ async def execute_action(
                 selector = args["selector"]
                 expected = str(args["expected"])
                 partial = bool(args.get("partial", True))
-                actual = await page.inner_text(selector, timeout=5_000)
+                locator = await _locator(page, selector)
+                actual = await locator.first.inner_text(timeout=5_000)
                 if partial:
                     ok = expected.lower() in actual.lower()
                 else:
@@ -87,7 +135,7 @@ async def execute_action(
                 safe_label = "".join(c if c.isalnum() or c in "-_" else "_" for c in label)
                 path = artifact_dir / f"step_{step:03d}_{safe_label}.png"
                 await page.screenshot(path=str(path), full_page=False)
-                screenshot_path = str(path)
+                screenshot_path = _artifact_ref(path, artifact_dir)
                 result = f"Screenshot saved: {path.name}"
 
             case ActionTool.SCROLL:
@@ -115,7 +163,7 @@ async def execute_action(
             auto_path = artifact_dir / f"step_{step:03d}_auto.png"
             try:
                 await page.screenshot(path=str(auto_path), full_page=False)
-                screenshot_path = str(auto_path)
+                screenshot_path = _artifact_ref(auto_path, artifact_dir)
             except Exception:
                 pass
 

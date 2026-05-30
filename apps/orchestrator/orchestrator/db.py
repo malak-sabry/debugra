@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -27,6 +27,10 @@ engine = create_async_engine(settings.database_url, echo=False)
 async_session_maker = async_sessionmaker(engine, expire_on_commit=False)
 
 
+def utc_now_naive() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
 async def get_session() -> AsyncSession:
     async with async_session_maker() as session:
         yield session
@@ -47,7 +51,7 @@ class RunModel(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     artifact_dir: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
 
     agents: Mapped[list[AgentModel]] = relationship("AgentModel", back_populates="run")
     findings: Mapped[list[FindingModel]] = relationship("FindingModel", back_populates="run")
@@ -85,7 +89,7 @@ class ActionModel(Base):
     result: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     screenshot_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    ts: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    ts: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
 
     agent: Mapped[AgentModel] = relationship("AgentModel", back_populates="actions")
 
@@ -104,7 +108,7 @@ class FindingModel(Base):
     oracle_type: Mapped[str] = mapped_column(String(64), nullable=False)
     ground_truth_bug_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     llm_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-    detected_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    detected_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
 
     run: Mapped[RunModel] = relationship("RunModel", back_populates="findings")
     agent: Mapped[AgentModel | None] = relationship("AgentModel", back_populates="findings")

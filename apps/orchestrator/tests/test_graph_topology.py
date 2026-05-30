@@ -1,7 +1,6 @@
 """Tests for the LangGraph topology and topological sort — no LLM/DB required."""
 from __future__ import annotations
 
-import pytest
 from orchestrator.graph import _topological_sort, build_run_graph
 from debugra_schemas import AgentObjective, AgentRole
 

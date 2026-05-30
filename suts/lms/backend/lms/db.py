@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import os
 from datetime import datetime
-from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
-    Boolean, DateTime, Float, ForeignKey, Integer, String, Text,
+    Boolean, DateTime, Float, ForeignKey, String, Text,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 DATABASE_URL = os.environ.get(

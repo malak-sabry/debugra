@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from playwright.async_api import Page
@@ -87,14 +86,18 @@ _JS_INTERACTABLE_ELEMENTS = """
     type: el.type || null,
     id: el.id || null,
     name: el.name || null,
+    testId: el.getAttribute('data-testid') || null,
     text: (el.innerText || el.value || el.placeholder || '').slice(0, 80).trim(),
     href: el.href || null,
     selector: _getSelector(el),
   }));
 
   function _getSelector(el) {
+    const testId = el.getAttribute('data-testid');
+    if (testId) return `[data-testid="${testId}"]`;
     if (el.id) return '#' + el.id;
     if (el.name) return `[name="${el.name}"]`;
+    if (el.getAttribute('href')) return `${el.tagName.toLowerCase()}[href="${el.getAttribute('href')}"]`;
     const cls = Array.from(el.classList).slice(0, 2).join('.');
     if (cls) return el.tagName.toLowerCase() + '.' + cls;
     return el.tagName.toLowerCase();

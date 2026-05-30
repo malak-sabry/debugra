@@ -1,23 +1,19 @@
 """Smoke tests for debugra_schemas — no DB/network required."""
 from __future__ import annotations
 
-import pytest
 from debugra_schemas import (
     AgentObjective,
     AgentRole,
-    AgentStatus,
     ActionTool,
     Finding,
     PlannerOutput,
     Run,
-    RunEvent,
     RunEventType,
     RunStatus,
     Severity,
     SUT,
 )
 from uuid import uuid4
-from datetime import datetime
 
 
 def test_run_status_values():

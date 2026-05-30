@@ -5,9 +5,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
-from lms.db import Submission, get_session
-from lms.auth import get_current_user, User
+from lms.db import Submission, User, get_session
+from lms.auth import get_current_user
 
 router = APIRouter(tags=["submissions"])
 
@@ -44,15 +45,22 @@ async def list_assignment_submissions(
         raise HTTPException(status_code=403, detail="Forbidden")
 
     result = await session.execute(
-        select(Submission).where(Submission.assignment_id == UUID(assignment_id))
+        select(Submission)
+        .options(joinedload(Submission.student))
+        .where(Submission.assignment_id == UUID(assignment_id))
     )
+    submissions = result.scalars().all()
     return [
         {
             "id": str(s.id),
             "student_id": str(s.student_id),
+            "student_name": s.student.name,
             "score": s.score,
+            "feedback": s.feedback,
             "file_path": s.file_path,
+            "text_content": s.text_content,
             "submitted_at": s.submitted_at.isoformat(),
+            "graded_at": s.graded_at.isoformat() if s.graded_at else None,
         }
-        for s in result.scalars().all()
+        for s in submissions
     ]

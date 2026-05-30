@@ -7,18 +7,40 @@ import { api } from "@/lib/api";
 const LMS_README = `# School LMS
 A learning management system with three roles: teacher, student, admin.
 
-## Roles
-- **teacher**: Creates assignments, grades submissions, manages courses
-- **student**: Views assignments, submits work, checks grades
-- **admin**: Manages users, views analytics, configures system
+## Pages & Navigation
+- Home (/) — Lists available courses. Shows "Sign In" / "Register" when logged out.
+- /auth/login — Login form with email + password fields. data-testid: login-form, email-input, password-input, submit-button
+- /auth/register — Registration form with name + email + password + role dropdown. data-testid: register-form, name-input, email-input, password-input, role-select, submit-button
+- Nav bar (shown after login) — Links: Courses (/), Assignments (/assignments), Create Course (/courses/create, teacher only), Admin (/admin, admin only). data-testid: main-nav, nav-home, nav-assignments, nav-create-course, nav-admin, user-name, logout-button
 
-## Key Flows
-1. Teacher registers and logs in
-2. Teacher creates a course and assignment
-3. Student registers and logs in
-4. Student views and submits assignment
-5. Teacher grades submission
-6. Admin views dashboard analytics
+## Teacher Flows
+1. Teacher registers at /auth/register (select "teacher" role) and logs in at /auth/login
+2. Teacher creates a course at /courses/create (data-testid: create-course-form, course-title-input, course-description-input, submit-button)
+3. Teacher clicks on a course to open /courses/[id] detail page
+4. Teacher clicks "+ New Assignment" to open a form, fills title + description + max score, clicks "Create Assignment"
+5. Teacher clicks on an assignment to expand it, sees submissions list
+6. Teacher enters score + feedback for each submission and clicks "Grade"
+
+## Student Flows
+1. Student registers at /auth/register (select "student" role) and logs in at /auth/login
+2. Student browses courses at /, clicks a course card to open /courses/[id]
+3. Student clicks "Enroll in Course" button
+4. Student clicks on an assignment to expand it, sees the submit form
+5. Student types text and/or uploads a file, clicks "Submit Assignment"
+6. Student checks graded status and score after teacher grades
+
+## Admin Flows
+1. Admin registers and logs in
+2. Admin views dashboard at /admin (data-testid: users-table)
+3. Admin can see all users, course stats, submission stats
+
+## Key data-testid attributes
+- Course cards: course-card-{id}, course-title
+- Assignment cards: assignment-card-{id}, assignment-title
+- Navigation: main-nav, nav-home, nav-assignments, nav-create-course, nav-admin
+- Forms: login-form, register-form, create-course-form
+- Inputs: email-input, password-input, name-input, role-select, course-title-input, course-description-input
+- Buttons: submit-button, logout-button, create-course-link
 `;
 
 const SHOP_README = `# E-commerce Checkout

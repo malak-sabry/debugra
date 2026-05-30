@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     # LLMs
     anthropic_api_key: str = ""
     openai_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
+    hackclub_api_key: str = ""
+    hackclub_base_url: str = "https://ai.hackclub.com/proxy/v1"
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1:8b"
     llm_planner: str = "claude-sonnet-4-5"
@@ -36,6 +39,10 @@ class Settings(BaseSettings):
     agent_wall_clock_seconds: int = 300
     playwright_headless: bool = True
     artifacts_dir: str = "./runs"
+
+    # Features
+    uiux_detection_enabled: bool = True
+    uiux_vision_model: str = "google/gemini-2.5-flash"
 
     # SUTs
     lms_base_url: str = "http://localhost:3001"

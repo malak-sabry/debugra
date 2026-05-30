@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Callable, Awaitable
@@ -18,11 +17,19 @@ settings = get_settings()
 _AGENT_RUNNER_DIR = Path(__file__).parents[2] / "agent-runner"
 
 
+def _artifact_ref(path: Path) -> str:
+    try:
+        return str(path.relative_to(Path(settings.artifacts_dir).resolve()))
+    except ValueError:
+        return str(path)
+
+
 async def run_agent(
     run_id: str,
     sut: str,
     base_url: str,
     objective: dict[str, Any],
+    agent_id: str | None = None,
     event_callback: Callable[[RunEventType, dict], Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
     """
@@ -30,8 +37,10 @@ async def run_agent(
     
     The agent runner communicates via stdout as newline-delimited JSON events.
     """
-    agent_id = str(uuid4())
-    artifact_dir = Path(settings.artifacts_dir) / run_id / agent_id
+    agent_id = agent_id or str(uuid4())
+    role = objective.get("role")
+    role_value = getattr(role, "value", role)
+    artifact_dir = (Path(settings.artifacts_dir) / run_id / agent_id).resolve()
     artifact_dir.mkdir(parents=True, exist_ok=True)
 
     env = {**os.environ, "PYTHONUNBUFFERED": "1"}
@@ -72,26 +81,30 @@ async def run_agent(
             try:
                 event = json.loads(line)
                 etype = event.get("type")
+                payload = event.get("payload", {})
 
                 if etype == "agent_step":
-                    actions.append(event.get("payload", {}))
+                    payload = {"agent_id": agent_id, "role": role_value, **payload}
+                    actions.append(payload)
                     if event_callback:
-                        await event_callback(RunEventType.AGENT_STEP, event.get("payload", {}))
+                        await event_callback(RunEventType.AGENT_STEP, payload)
 
                 elif etype == "agent_screenshot":
+                    payload = {"agent_id": agent_id, "role": role_value, **payload}
                     if event_callback:
-                        await event_callback(RunEventType.AGENT_SCREENSHOT, event.get("payload", {}))
+                        await event_callback(RunEventType.AGENT_SCREENSHOT, payload)
 
                 elif etype == "log_line":
-                    logs.append(event.get("payload", {}).get("line", ""))
+                    payload = {"agent_id": agent_id, "role": role_value, **payload}
+                    logs.append(payload.get("line", ""))
                     if event_callback:
-                        await event_callback(RunEventType.LOG_LINE, event.get("payload", {}))
+                        await event_callback(RunEventType.LOG_LINE, payload)
 
                 elif etype == "assertion_failure":
-                    assertion_failures.append(event.get("payload", {}))
+                    assertion_failures.append(payload)
 
                 elif etype == "axe_violation":
-                    axe_violations.append(event.get("payload", {}))
+                    axe_violations.append(payload)
 
             except json.JSONDecodeError:
                 logs.append(line)
@@ -105,14 +118,18 @@ async def run_agent(
         proc.kill()
 
     await proc.wait()
+    trace_path = artifact_dir / "trace.zip"
+    video_path = next(artifact_dir.glob("*.webm"), None)
 
     return {
         "agent_id": agent_id,
-        "role": objective.get("role"),
+        "role": role_value,
         "actions": actions,
         "logs": logs,
         "assertion_failures": assertion_failures,
         "axe_violations": axe_violations,
         "artifact_dir": str(artifact_dir),
+        "trace_path": _artifact_ref(trace_path) if trace_path.exists() else None,
+        "video_path": _artifact_ref(video_path) if video_path else None,
         "exit_code": proc.returncode,
     }

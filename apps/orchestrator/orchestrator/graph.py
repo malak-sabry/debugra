@@ -1,26 +1,24 @@
 from __future__ import annotations
 
-import asyncio
-from typing import Annotated, Any
-from uuid import UUID
+from typing import Any
+from uuid import uuid4
 
 from langgraph.graph import END, StateGraph
-from langgraph.graph.message import add_messages
 from typing_extensions import TypedDict
 
 from debugra_schemas import (
-    AgentRole,
-    AgentStatus,
     Finding,
     PlannerOutput,
-    Run,
     RunEventType,
-    RunStatus,
-    SUT,
+    Severity,
 )
 from orchestrator.planner import run_planner
 from orchestrator.detector import aggregate_findings
 from orchestrator.reporter import run_reporter
+from orchestrator.uiux_detector import analyze_screenshots_uiux
+from orchestrator.config import get_settings
+
+settings = get_settings()
 
 
 # ─── Graph State ──────────────────────────────────────────────────────────────
@@ -84,8 +82,20 @@ async def node_spawn_agents(state: RunState) -> RunState:
     # For now: run agents sequentially in dependency order.
     # Phase 2 will parallelize independent agents via asyncio.gather.
     for objective in ordered:
+        agent_id = str(uuid4())
+        role = objective.role.value if hasattr(objective.role, "value") else objective.role
         if cb:
-            await cb(RunEventType.AGENT_SPAWNED, {"role": objective.role, "description": objective.description})
+            await cb(
+                RunEventType.AGENT_SPAWNED,
+                {
+                    "agent_id": agent_id,
+                    "role": role,
+                    "description": objective.description,
+                    "model": settings.llm_actor,
+                    "status": "running",
+                    "step_count": 0,
+                },
+            )
 
         try:
             result = await run_agent(
@@ -93,11 +103,59 @@ async def node_spawn_agents(state: RunState) -> RunState:
                 sut=state["sut"],
                 base_url=state["base_url"],
                 objective=objective.model_dump(),
+                agent_id=agent_id,
                 event_callback=cb,
             )
             results.append(result)
+            if cb:
+                exit_code = result.get("exit_code", 0)
+                completion_type = (
+                    RunEventType.AGENT_COMPLETE
+                    if exit_code == 0
+                    else RunEventType.AGENT_FAILED
+                )
+                await cb(
+                    completion_type,
+                    {
+                        "agent_id": agent_id,
+                        "role": role,
+                        "step_count": len(result.get("actions", [])),
+                        "trace_path": result.get("trace_path"),
+                        "video_path": result.get("video_path"),
+                        "exit_code": exit_code,
+                    },
+                )
+                if exit_code != 0:
+                    agent_actions = result.get("actions", [])
+                    _build_agent_failure_finding(
+                        cb=cb,
+                        run_id=state["run_id"],
+                        agent_id=agent_id,
+                        role=role,
+                        exit_code=exit_code,
+                        actions=agent_actions,
+                        error=result.get("error"),
+                    )
         except Exception as exc:
-            results.append({"role": objective.role, "error": str(exc), "actions": [], "logs": []})
+            results.append({"agent_id": agent_id, "role": objective.role, "error": str(exc), "actions": [], "logs": []})
+            if cb:
+                await cb(
+                    RunEventType.AGENT_FAILED,
+                    {
+                        "agent_id": agent_id,
+                        "role": role,
+                        "error": str(exc),
+                    },
+                )
+                _build_agent_failure_finding(
+                    cb=cb,
+                    run_id=state["run_id"],
+                    agent_id=agent_id,
+                    role=role,
+                    exit_code=-1,
+                    actions=[],
+                    error=str(exc),
+                )
 
     state["agent_results"] = results
     return state
@@ -114,6 +172,13 @@ async def node_detect(state: RunState) -> RunState:
         run_id=state["run_id"],
         agent_results=state["agent_results"],
     )
+
+    uiux_findings = await analyze_screenshots_uiux(
+        run_id=state["run_id"],
+        agent_results=state["agent_results"],
+    )
+    findings.extend(uiux_findings)
+
     state["findings"] = [f.model_dump(mode="json") for f in findings]
 
     cb = state["event_callback"]
@@ -185,9 +250,96 @@ def build_run_graph() -> StateGraph:
 # ─── Helpers ───────────────────────────────────────────────────────────────────
 
 
+async def _build_agent_failure_finding(
+    cb: Any,
+    run_id: str,
+    agent_id: str,
+    role: str,
+    exit_code: int,
+    actions: list[dict],
+    error: str | None,
+) -> None:
+    """Emit a FINDING_DETECTED with rich context about why the agent failed."""
+    last_actions = actions[-5:] if actions else []
+
+    # Translate exit codes
+    if exit_code == -9:
+        human_error = (
+            "Agent hit the wall-clock time limit (5 min). "
+            "It was still running when the timeout was reached."
+        )
+    elif exit_code == -1:
+        human_error = f"Agent crashed before completing: {error or 'Unknown error'}"
+    else:
+        human_error = f"Agent exited with code {exit_code}. {error or ''}"
+
+    # Build repro steps from last actions
+    repro_steps: list[str] = []
+    for a in last_actions:
+        tool = a.get("tool", "?")
+        step = a.get("step", "?")
+        args = a.get("args", {})
+        thought = a.get("thought", "")
+        if tool == "goto":
+            repro_steps.append(f"[{step}] Navigate to {args.get('url', '')}")
+        elif tool == "click":
+            repro_steps.append(f"[{step}] Click {args.get('selector', '')}")
+        elif tool == "fill":
+            repro_steps.append(f"[{step}] Fill {args.get('selector', '')} = '{args.get('value', '')[:80]}'")
+        elif tool == "select":
+            repro_steps.append(f"[{step}] Select {args.get('selector', '')} → '{args.get('value', '')}'")
+        else:
+            repro_steps.append(f"[{step}] {tool}: {str(args)[:100]}")
+        if thought:
+            repro_steps.append(f"     → reasoned: {thought[:150]}")
+
+    # Collect unique evidence screenshots
+    evidence_paths: list[str] = []
+    for a in reversed(actions):
+        sp = a.get("screenshot_path")
+        if sp and sp not in evidence_paths:
+            evidence_paths.append(sp)
+            if len(evidence_paths) >= 3:
+                break
+
+    # Description with summary of what the agent was doing
+    if last_actions:
+        last_step = last_actions[-1]
+        last_tool = last_step.get("tool", "?")
+        last_args = last_step.get("args", {})
+        last_obs = last_step.get("observation_summary", "?")
+        context = (
+            f"Agent role: {role}\n"
+            f"Failure: {human_error}\n"
+            f"Last action: {last_tool} on page {last_obs}\n"
+            f"Last args: {str(last_args)[:200]}\n"
+            f"Total steps attempted: {len(actions)}"
+        )
+    else:
+        context = (
+            f"Agent role: {role}\n"
+            f"Failure: {human_error}\n"
+            f"No actions were recorded before failure."
+        )
+
+    await cb(
+        RunEventType.FINDING_DETECTED,
+        Finding(
+            id=uuid4(),
+            run_id=run_id,
+            agent_id=agent_id,
+            severity=Severity.HIGH,
+            title=f"Agent {role} failed: could not complete objective",
+            description=context,
+            repro_steps=repro_steps,
+            evidence_paths=evidence_paths,
+            oracle_type="agent_failure",
+        ).model_dump(mode="json"),
+    )
+
+
 def _topological_sort(objectives: list) -> list:
     """Simple Kahn's algorithm for dependency ordering."""
-    role_to_obj = {obj.role: obj for obj in objectives}
     in_degree = {obj.role: len(obj.dependencies) for obj in objectives}
     queue = [obj for obj in objectives if in_degree[obj.role] == 0]
     result = []

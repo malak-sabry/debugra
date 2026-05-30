@@ -45,6 +45,16 @@ export const lmsApi = {
       apiFetch<Record<string, unknown>[]>(`/api/assignments/course/${courseId}`, { token }),
     create: (token: string, body: Record<string, unknown>) =>
       apiFetch("/api/assignments", { method: "POST", body: JSON.stringify(body), token }),
+    submit: (token: string, assignmentId: string, textContent: string, file?: File) => {
+      const form = new FormData();
+      form.append("text_content", textContent);
+      if (file) form.append("file", file);
+      return fetch(`${BASE}/api/assignments/${assignmentId}/submit`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      }).then((r) => { if (!r.ok) throw new Error(`submit → ${r.status}`); return r.json(); });
+    },
     grade: (token: string, assignmentId: string, submissionId: string, score: number, feedback: string) =>
       apiFetch(`/api/assignments/${assignmentId}/grade/${submissionId}?score=${score}&feedback=${encodeURIComponent(feedback)}`, {
         method: "POST",
@@ -54,6 +64,8 @@ export const lmsApi = {
   submissions: {
     listMine: (token: string) =>
       apiFetch<Record<string, unknown>[]>("/api/submissions", { token }),
+    listByAssignment: (token: string, assignmentId: string) =>
+      apiFetch<Record<string, unknown>[]>(`/api/submissions/assignment/${assignmentId}`, { token }),
   },
   admin: {
     dashboard: (token: string) => apiFetch<Record<string, unknown>>("/api/admin/dashboard", { token }),

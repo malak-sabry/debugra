@@ -49,6 +49,7 @@ playwright/.cache/
 
 # Debugra run artifacts (root-level only, not app route dirs)
 /runs/
+/apps/agent-runner/runs/
 *.zip
 *.har
 

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lms.db import User, Course, Assignment, Submission, get_session
+from lms.db import User, Course, Submission, get_session
 from lms.auth import get_current_user
 
 router = APIRouter(tags=["admin"])

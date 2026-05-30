@@ -70,7 +70,6 @@ async def login(
 
 @router.get("/me")
 async def me(session: AsyncSession = Depends(get_session), token: str = ""):
-    from lms.auth import get_current_user
     return {"message": "Use Authorization header"}
 
 

@@ -4,17 +4,15 @@ import argparse
 import asyncio
 import json
 import os
-import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
-
-load_dotenv(Path(__file__).parents[3] / ".env")
-
 from runner.worker import BrowserAgent
 
 
 def parse_args() -> argparse.Namespace:
+    load_dotenv(Path(__file__).parents[3] / ".env")
+
     p = argparse.ArgumentParser(description="Debugra agent runner")
     p.add_argument("--run-id", required=True)
     p.add_argument("--agent-id", required=True)

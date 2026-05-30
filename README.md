@@ -6,6 +6,43 @@ Debugra autonomously reads a project's documentation, understands its roles and 
 
 ## Quick Start
 
+### Native macOS
+
+Use this path when you want to run the whole project without Docker. Docker compose files stay available for the containerized flow.
+
+```bash
+# 1. Install system services once
+brew install postgresql@16 redis
+brew services start postgresql@16
+brew services start redis
+
+# 2. Install project dependencies
+make setup
+
+# 3. Create local Postgres users/databases: debugra, lms, shop
+make native-db
+
+# 4. Start Debugra + both SUTs natively
+make native-dev
+```
+
+`make native-dev` also runs the database setup check, so rerunning it is safe.
+
+Native ports:
+
+| Service | URL |
+|---------|-----|
+| Dashboard | http://localhost:3000 |
+| Orchestrator | http://localhost:8000/docs |
+| LMS | http://localhost:3001 |
+| LMS API | http://localhost:8001/health |
+| Shop | http://localhost:3002 |
+| Shop API | http://localhost:8002/health |
+
+Logs are written to `logs/*.log`. Press `Ctrl-C` in the `make native-dev` terminal to stop all native processes.
+
+### Docker
+
 ```bash
 # 1. Copy env and install dependencies
 make setup

@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import json
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+from playwright.async_api import async_playwright, Page
 
 from debugra_schemas import ActionTool
 from runner.observer import snapshot_page
@@ -224,7 +223,6 @@ class BrowserAgent:
     async def _think(self, obs: dict[str, Any], history: str, step: int) -> dict[str, Any]:
         """Call the actor LLM and return the next action dict."""
         from pathlib import Path as _Path
-        import re
 
         prompt_path = _Path(__file__).parents[3] / "packages" / "prompts" / "actor.md"
         template = prompt_path.read_text(encoding="utf-8")
@@ -238,6 +236,7 @@ class BrowserAgent:
             .replace("{{current_url}}", obs.get("url", ""))
             .replace("{{page_title}}", obs.get("title", ""))
             .replace("{{dom_snapshot}}", obs.get("dom_snapshot", "")[:6000])
+            .replace("{{interactable_elements}}", json.dumps(obs.get("interactable_elements", []), indent=2)[:6000])
             .replace("{{action_history}}", history)
         )
 
@@ -249,7 +248,8 @@ class BrowserAgent:
             return await self._call_openai(prompt)
 
     async def _call_ollama(self, prompt: str) -> dict[str, Any]:
-        import httpx, os
+        import httpx
+        import os
         base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
         model = self.actor_model.replace("ollama/", "")
         async with httpx.AsyncClient(timeout=60) as client:
@@ -279,7 +279,21 @@ class BrowserAgent:
         import os
         from langchain_openai import ChatOpenAI
         from langchain_core.messages import HumanMessage
-        llm = ChatOpenAI(model=self.actor_model, api_key=os.environ.get("OPENAI_API_KEY", ""), max_tokens=512, temperature=0)
+        api_key = os.environ.get("HACKCLUB_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
+        base_url = os.environ.get("HACKCLUB_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+        llm = ChatOpenAI(
+            model=self.actor_model,
+            api_key=api_key,
+            base_url=base_url,
+            max_tokens=512,
+            temperature=0,
+            request_timeout=60,
+        )
         response = await llm.ainvoke([HumanMessage(content=prompt)])
         raw = response.content.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip()
         return json.loads(raw)
