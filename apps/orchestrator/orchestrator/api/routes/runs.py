@@ -10,9 +10,12 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from debugra_schemas import ActionTool, AgentRole, AgentStatus, RunEventType, RunStatus, SUT, Severity
+from orchestrator.config import get_settings
 from orchestrator.db import ActionModel, RunModel, FindingModel, AgentModel, get_session, utc_now_naive
 from orchestrator.graph import build_run_graph, RunState
 from orchestrator.event_bus import publish_event
+
+settings = get_settings()
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -370,14 +373,14 @@ async def _execute_run(run_id: str, sut: SUT, readme: str) -> None:
         await publish_event(run_id, event_type, payload)
 
     sut_urls = {
-        SUT.LMS: "http://localhost:3001",
-        SUT.SHOP: "http://localhost:3002",
+        SUT.LMS: settings.lms_base_url,
+        SUT.SHOP: settings.shop_base_url,
     }
 
     state: RunState = {
         "run_id": run_id,
         "sut": sut,
-        "base_url": sut_urls.get(sut, "http://localhost:3001"),
+        "base_url": sut_urls.get(sut, settings.lms_base_url),
         "readme_content": readme,
         "plan": None,
         "agent_results": [],
