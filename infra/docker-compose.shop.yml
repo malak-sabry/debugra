@@ -31,10 +31,12 @@ services:
     build:
       context: ../suts/shop/frontend
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://host.docker.internal:8002
     ports:
       - "3002:3002"
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8002
+      NEXT_PUBLIC_API_URL: http://host.docker.internal:8002
       BACKEND_URL: http://shop-backend:8002
     depends_on:
       - shop-backend

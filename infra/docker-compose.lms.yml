@@ -34,10 +34,12 @@ services:
     build:
       context: ../suts/lms/frontend
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://host.docker.internal:8001
     ports:
       - "3001:3001"
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8001
+      NEXT_PUBLIC_API_URL: http://host.docker.internal:8001
       BACKEND_URL: http://lms-backend:8001
     depends_on:
       - lms-backend
